@@ -14,5 +14,8 @@ Metrics/BlockLength:
     - "spec/**/*"
     - "*.gemspec"
 
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
 Layout/LineLength:
   Max: 120
