@@ -13,15 +13,14 @@ require_relative "retry_kit/executor"
 
 module Philiprehberger
   module RetryKit
-
     # Execute a block with retry logic.
     #
     # @param options [Hash] options passed to Executor.new
     # @yield the block to execute
     # @return the block's return value
     # @see Executor#initialize for available options
-    def self.run(**options, &block)
-      Executor.new(**options).call(&block)
+    def self.run(**options, &)
+      Executor.new(**options).call(&)
     end
   end
 end
