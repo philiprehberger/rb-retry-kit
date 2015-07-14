@@ -58,7 +58,9 @@ module Philiprehberger
       def check_state!
         case @state
         when :open
-          raise OpenError, "Circuit is open (#{@failure_count} failures, cooldown: #{@cooldown}s)" unless cooldown_elapsed?
+          unless cooldown_elapsed?
+            raise OpenError, "Circuit is open (#{@failure_count} failures, cooldown: #{@cooldown}s)"
+          end
 
           @state = :half_open
         when :half_open
