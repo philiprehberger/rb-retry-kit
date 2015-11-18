@@ -37,8 +37,8 @@ module Philiprehberger
 
       private
 
-      def attempt_with_retries(attempt, &block)
-        execute_attempt(&block)
+      def attempt_with_retries(attempt, &)
+        execute_attempt(&)
       rescue CircuitBreaker::OpenError
         raise
       rescue *@retryable_errors => e
@@ -47,14 +47,14 @@ module Philiprehberger
         delay = compute_delay(attempt)
         @on_retry&.call(e, attempt + 1, delay)
         sleep(delay)
-        attempt_with_retries(attempt + 1, &block)
+        attempt_with_retries(attempt + 1, &)
       end
 
-      def execute_attempt(&block)
+      def execute_attempt(&)
         if @circuit_breaker
-          @circuit_breaker.call(&block)
+          @circuit_breaker.call(&)
         else
-          block.call
+          yield
         end
       end
 

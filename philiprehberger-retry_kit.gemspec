@@ -10,8 +10,8 @@ Gem::Specification.new do |spec|
 
   spec.summary = "Retry with exponential backoff, jitter, and circuit breaker"
   spec.description = "A lightweight retry library with exponential/linear/constant backoff, " \
-                       "configurable jitter strategies, and an optional circuit breaker for " \
-                       "resilient Ruby applications."
+                     "configurable jitter strategies, and an optional circuit breaker for " \
+                     "resilient Ruby applications."
   spec.homepage = "https://github.com/philiprehberger/rb-retry-kit"
   spec.license = "MIT"
 
