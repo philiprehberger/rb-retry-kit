@@ -40,7 +40,7 @@ module Philiprehberger
       # Add jitter to a delay value.
       #
       # @param delay [Numeric] the base delay
-      # @param mode [Symbol] jitter mode — :full, :equal, or :decorrelated
+      # @param mode [Symbol] jitter mode — :full, :equal, or :none
       # @return [Float] jittered delay
       def jitter(delay, mode: :full)
         case mode

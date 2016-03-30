@@ -4,6 +4,9 @@ module Philiprehberger
   module RetryKit
     class Error < StandardError; end
 
+    # Raised when total elapsed time across all retries exceeds the limit.
+    class TotalTimeoutError < Error; end
+
     # Execute a block with retry logic.
     #
     # @param options [Hash] options passed to Executor.new

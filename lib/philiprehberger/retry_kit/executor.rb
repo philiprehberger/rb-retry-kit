@@ -4,6 +4,14 @@ module Philiprehberger
   module RetryKit
     # Executes a block with configurable retry logic, backoff, and optional circuit breaker.
     class Executor
+      # Number of attempts in the last execution.
+      # @return [Integer]
+      attr_reader :last_attempts
+
+      # Total delay (seconds) spent sleeping across retries in the last execution.
+      # @return [Float]
+      attr_reader :last_total_delay
+
       # @param options [Hash] retry configuration options
       # @option options [Integer] :max_attempts (3) maximum number of attempts
       # @option options [Symbol] :backoff (:exponential) backoff strategy
@@ -13,6 +21,7 @@ module Philiprehberger
       # @option options [Array<Class>] :on ([StandardError]) exception classes to retry on
       # @option options [CircuitBreaker, nil] :circuit_breaker (nil) optional circuit breaker
       # @option options [Proc, nil] :on_retry (nil) callback before each retry
+      # @option options [Numeric, nil] :total_timeout (nil) max total seconds across all attempts
       def initialize(**options)
         @max_attempts = options.fetch(:max_attempts, 3)
         @backoff = options.fetch(:backoff, :exponential)
@@ -22,6 +31,9 @@ module Philiprehberger
         @retryable_errors = Array(options.fetch(:on, [StandardError]))
         @circuit_breaker = options[:circuit_breaker]
         @on_retry = options[:on_retry]
+        @total_timeout = options[:total_timeout]
+        @last_attempts = 0
+        @last_total_delay = 0.0
       end
 
       # Execute the block with retry logic.
@@ -32,22 +44,42 @@ module Philiprehberger
       def call(&block)
         raise ArgumentError, "Block required" unless block
 
+        @last_attempts = 0
+        @last_total_delay = 0.0
+        @start_time = @total_timeout ? Process.clock_gettime(Process::CLOCK_MONOTONIC) : nil
+
         attempt_with_retries(0, &block)
       end
 
       private
 
       def attempt_with_retries(attempt, &)
+        @last_attempts = attempt + 1
+        check_total_timeout!
+
         execute_attempt(&)
       rescue CircuitBreaker::OpenError
+        raise
+      rescue TotalTimeoutError
         raise
       rescue *@retryable_errors => e
         raise e if attempt + 1 >= @max_attempts
 
         delay = compute_delay(attempt)
+        @last_total_delay += delay
         @on_retry&.call(e, attempt + 1, delay)
         sleep(delay)
         attempt_with_retries(attempt + 1, &)
+      end
+
+      def check_total_timeout!
+        return unless @start_time
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - @start_time
+        return unless elapsed >= @total_timeout
+
+        raise TotalTimeoutError,
+              "Total timeout of #{@total_timeout}s exceeded (#{elapsed.round(2)}s elapsed)"
       end
 
       def execute_attempt(&)

@@ -58,6 +58,52 @@ RSpec.describe Philiprehberger::RetryKit do
       expect(retries.first[:attempt]).to eq(1)
       expect(retries.last[:attempt]).to eq(2)
     end
+
+    it "raises TotalTimeoutError when total_timeout is exceeded" do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 10, backoff: :constant, base_delay: 0.05, jitter: :none, total_timeout: 0.1
+      )
+
+      expect do
+        executor.call { raise StandardError, "fail" }
+      end.to raise_error(Philiprehberger::RetryKit::TotalTimeoutError)
+    end
+  end
+
+  describe "execution stats" do
+    it "tracks last_attempts and last_total_delay" do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 3, backoff: :constant, base_delay: 0, jitter: :none
+      )
+
+      attempts = 0
+      executor.call do
+        attempts += 1
+        raise StandardError, "fail" if attempts < 3
+
+        "ok"
+      end
+
+      expect(executor.last_attempts).to eq(3)
+      expect(executor.last_total_delay).to eq(0.0)
+    end
+
+    it "accumulates delay across retries" do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 3, backoff: :constant, base_delay: 0.01, jitter: :none
+      )
+
+      attempts = 0
+      executor.call do
+        attempts += 1
+        raise StandardError, "fail" if attempts < 3
+
+        "ok"
+      end
+
+      expect(executor.last_attempts).to eq(3)
+      expect(executor.last_total_delay).to be_within(0.001).of(0.02)
+    end
   end
 end
 
@@ -177,5 +223,45 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
     breaker.reset
     expect(breaker.state).to eq(:closed)
     expect(breaker.failure_count).to eq(0)
+  end
+
+  describe "on_state_change" do
+    it "calls the callback on state transitions" do
+      transitions = []
+      cb = described_class.new(
+        failure_threshold: 2,
+        cooldown: 0.1,
+        on_state_change: ->(from, to) { transitions << [from, to] }
+      )
+
+      2.times do
+        cb.call { raise StandardError }
+      rescue StandardError
+        nil
+      end
+
+      expect(transitions).to include([:closed, :open])
+    end
+
+    it "fires on recovery from half_open to closed" do
+      transitions = []
+      cb = described_class.new(
+        failure_threshold: 2,
+        cooldown: 0.1,
+        on_state_change: ->(from, to) { transitions << [from, to] }
+      )
+
+      2.times do
+        cb.call { raise StandardError }
+      rescue StandardError
+        nil
+      end
+
+      sleep 0.15
+      cb.call { "recovered" }
+
+      expect(transitions).to include([:open, :half_open])
+      expect(transitions).to include([:half_open, :closed])
+    end
   end
 end
