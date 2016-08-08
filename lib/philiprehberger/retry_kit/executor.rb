@@ -23,15 +23,7 @@ module Philiprehberger
       # @option options [Proc, nil] :on_retry (nil) callback before each retry
       # @option options [Numeric, nil] :total_timeout (nil) max total seconds across all attempts
       def initialize(**options)
-        @max_attempts = options.fetch(:max_attempts, 3)
-        @backoff = options.fetch(:backoff, :exponential)
-        @base_delay = options.fetch(:base_delay, 0.5)
-        @max_delay = options.fetch(:max_delay, 30)
-        @jitter = options.fetch(:jitter, :full)
-        @retryable_errors = Array(options.fetch(:on, [StandardError]))
-        @circuit_breaker = options[:circuit_breaker]
-        @on_retry = options[:on_retry]
-        @total_timeout = options[:total_timeout]
+        assign_options(options)
         @last_attempts = 0
         @last_total_delay = 0.0
       end
@@ -56,11 +48,8 @@ module Philiprehberger
       def attempt_with_retries(attempt, &)
         @last_attempts = attempt + 1
         check_total_timeout!
-
         execute_attempt(&)
-      rescue CircuitBreaker::OpenError
-        raise
-      rescue TotalTimeoutError
+      rescue CircuitBreaker::OpenError, TotalTimeoutError
         raise
       rescue *@retryable_errors => e
         raise e if attempt + 1 >= @max_attempts
@@ -70,6 +59,18 @@ module Philiprehberger
         @on_retry&.call(e, attempt + 1, delay)
         sleep(delay)
         attempt_with_retries(attempt + 1, &)
+      end
+
+      def assign_options(options)
+        @max_attempts = options.fetch(:max_attempts, 3)
+        @backoff = options.fetch(:backoff, :exponential)
+        @base_delay = options.fetch(:base_delay, 0.5)
+        @max_delay = options.fetch(:max_delay, 30)
+        @jitter = options.fetch(:jitter, :full)
+        @retryable_errors = Array(options.fetch(:on, [StandardError]))
+        @circuit_breaker = options[:circuit_breaker]
+        @on_retry = options[:on_retry]
+        @total_timeout = options[:total_timeout]
       end
 
       def check_total_timeout!

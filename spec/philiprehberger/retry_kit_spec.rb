@@ -240,7 +240,7 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
         nil
       end
 
-      expect(transitions).to include([:closed, :open])
+      expect(transitions).to include(%i[closed open])
     end
 
     it "fires on recovery from half_open to closed" do
@@ -260,8 +260,8 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
       sleep 0.15
       cb.call { "recovered" }
 
-      expect(transitions).to include([:open, :half_open])
-      expect(transitions).to include([:half_open, :closed])
+      expect(transitions).to include(%i[open half_open])
+      expect(transitions).to include(%i[half_open closed])
     end
   end
 end
