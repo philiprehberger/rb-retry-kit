@@ -54,9 +54,13 @@ module Philiprehberger
       rescue *@retryable_errors => e
         raise e if attempt + 1 >= @max_attempts
 
+        wait_and_retry(e, attempt, &)
+      end
+
+      def wait_and_retry(error, attempt, &)
         delay = compute_delay(attempt)
         @last_total_delay += delay
-        @on_retry&.call(e, attempt + 1, delay)
+        @on_retry&.call(error, attempt + 1, delay)
         sleep(delay)
         attempt_with_retries(attempt + 1, &)
       end
