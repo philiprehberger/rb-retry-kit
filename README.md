@@ -2,6 +2,7 @@
 
 [![Tests](https://github.com/philiprehberger/rb-retry-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/rb-retry-kit/actions/workflows/ci.yml)
 [![Gem Version](https://badge.fury.io/rb/philiprehberger-retry_kit.svg)](https://rubygems.org/gems/philiprehberger-retry_kit)
+[![License](https://img.shields.io/github/license/philiprehberger/rb-retry-kit)](LICENSE)
 
 Retry with exponential backoff, jitter, and circuit breaker for resilient Ruby applications.
 
