@@ -54,6 +54,16 @@ module Philiprehberger
           raise ArgumentError, "Unknown jitter mode: #{mode}. Use :full, :equal, or :none"
         end
       end
+
+      # Compute decorrelated jitter delay (AWS-style).
+      #
+      # @param last_delay [Numeric] the previous sleep duration
+      # @param base_delay [Numeric] the base delay in seconds
+      # @param max_delay [Numeric] the maximum delay cap in seconds
+      # @return [Float] decorrelated jitter delay
+      def decorrelated(last_delay, base_delay: 0.5, max_delay: 30)
+        [max_delay, rand(base_delay.to_f..(last_delay * 3).to_f)].min
+      end
     end
   end
 end
