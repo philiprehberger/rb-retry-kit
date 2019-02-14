@@ -4,39 +4,14 @@ module Philiprehberger
   module RetryKit
     # Executes a block with configurable retry logic, backoff, and optional circuit breaker.
     class Executor
-      # Number of attempts in the last execution.
-      # @return [Integer]
-      attr_reader :last_attempts
+      attr_reader :last_attempts, :last_total_delay
 
-      # Total delay (seconds) spent sleeping across retries in the last execution.
-      # @return [Float]
-      attr_reader :last_total_delay
-
-      # @param options [Hash] retry configuration options
-      # @option options [Integer] :max_attempts (3) maximum number of attempts
-      # @option options [Symbol] :backoff (:exponential) backoff strategy
-      # @option options [Numeric] :base_delay (0.5) base delay in seconds
-      # @option options [Numeric] :max_delay (30) maximum delay cap in seconds
-      # @option options [Symbol] :jitter (:full) jitter mode
-      # @option options [Array<Class>] :on ([StandardError]) exception classes to retry on
-      # @option options [CircuitBreaker, nil] :circuit_breaker (nil) optional circuit breaker
-      # @option options [Proc, nil] :on_retry (nil) callback before each retry
-      # @option options [Numeric, nil] :total_timeout (nil) max total seconds across all attempts
-      # @option options [Proc, nil] :fallback (nil) handler called with last error when all retries exhausted
-      # @option options [Proc, nil] :retry_if (nil) predicate receiving (error, attempt) to decide whether to retry
-      # @option options [Proc, nil] :on_attempt (nil) callback after each attempt: (attempt, duration, error)
-      # @option options [Budget, nil] :budget (nil) shared retry budget
       def initialize(**options)
         assign_options(options)
         @last_attempts = 0
         @last_total_delay = 0.0
       end
 
-      # Execute the block with retry logic.
-      #
-      # @yield the block to execute
-      # @return the block's return value
-      # @raise the last exception if all attempts are exhausted
       def call(&block)
         raise ArgumentError, "Block required" unless block
 
