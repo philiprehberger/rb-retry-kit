@@ -19,3 +19,6 @@ Style/StringLiterals:
 
 Layout/LineLength:
   Max: 120
+
+Layout/EndOfLine:
+  Enabled: false
