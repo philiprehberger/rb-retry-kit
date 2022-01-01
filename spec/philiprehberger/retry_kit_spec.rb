@@ -7,10 +7,32 @@ RSpec.describe Philiprehberger::RetryKit do
     expect(Philiprehberger::RetryKit::VERSION).not_to be_nil
   end
 
+  it "has a version matching semantic versioning format" do
+    expect(Philiprehberger::RetryKit::VERSION).to match(/\A\d+\.\d+\.\d+\z/)
+  end
+
   describe ".run" do
     it "returns the block result on success" do
       result = described_class.run { 42 }
       expect(result).to eq(42)
+    end
+
+    it "succeeds immediately without retrying when block does not raise" do
+      attempt_count = 0
+      retry_called = false
+      described_class.run(
+        max_attempts: 5,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        on_retry: ->(_e, _a, _d) { retry_called = true }
+      ) do
+        attempt_count += 1
+        "immediate success"
+      end
+
+      expect(attempt_count).to eq(1)
+      expect(retry_called).to be(false)
     end
 
     it "retries on failure and succeeds" do
@@ -32,6 +54,17 @@ RSpec.describe Philiprehberger::RetryKit do
           raise StandardError, "always fails"
         end
       end.to raise_error(StandardError, "always fails")
+    end
+
+    it "raises on first failure when max_attempts is 1" do
+      attempts = 0
+      expect do
+        described_class.run(max_attempts: 1, backoff: :constant, base_delay: 0, jitter: :none) do
+          attempts += 1
+          raise StandardError, "no retries"
+        end
+      end.to raise_error(StandardError, "no retries")
+      expect(attempts).to eq(1)
     end
 
     it "only retries specified error classes" do
@@ -67,6 +100,47 @@ RSpec.describe Philiprehberger::RetryKit do
       expect do
         executor.call { raise StandardError, "fail" }
       end.to raise_error(Philiprehberger::RetryKit::TotalTimeoutError)
+    end
+  end
+
+  describe "Executor" do
+    it "raises ArgumentError when called without a block" do
+      executor = Philiprehberger::RetryKit::Executor.new
+      expect { executor.call }.to raise_error(ArgumentError, "Block required")
+    end
+
+    it "raises ArgumentError for unknown backoff strategy" do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 2, backoff: :unknown, base_delay: 0, jitter: :none
+      )
+      expect do
+        executor.call { raise StandardError, "fail" }
+      end.to raise_error(ArgumentError, /Unknown backoff strategy/)
+    end
+
+    it "resets stats when called multiple times" do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 3, backoff: :constant, base_delay: 0, jitter: :none
+      )
+
+      attempts = 0
+      executor.call do
+        attempts += 1
+        raise StandardError, "fail" if attempts < 3
+        "ok"
+      end
+      expect(executor.last_attempts).to eq(3)
+
+      # Second call should reset stats
+      executor.call { "immediate" }
+      expect(executor.last_attempts).to eq(1)
+      expect(executor.last_total_delay).to eq(0.0)
+    end
+
+    it "initializes with zero stats" do
+      executor = Philiprehberger::RetryKit::Executor.new
+      expect(executor.last_attempts).to eq(0)
+      expect(executor.last_total_delay).to eq(0.0)
     end
   end
 
@@ -155,6 +229,45 @@ RSpec.describe Philiprehberger::RetryKit do
 
       delays.each do |d|
         expect(d).to be <= 0.02
+      end
+    end
+  end
+
+  describe "backoff strategies via run" do
+    it "uses linear backoff when configured" do
+      delays = []
+      callback = ->(_error, _attempt, delay) { delays << delay }
+      attempts = 0
+      described_class.run(
+        max_attempts: 4, backoff: :linear, base_delay: 0.001, max_delay: 10, jitter: :none, on_retry: callback
+      ) do
+        attempts += 1
+        raise StandardError, "fail" if attempts < 4
+        "ok"
+      end
+
+      expect(delays.length).to eq(3)
+      # Linear: base * (attempt+1), attempt 0-based => 0.001, 0.002, 0.003
+      expect(delays[0]).to be_within(0.0001).of(0.001)
+      expect(delays[1]).to be_within(0.0001).of(0.002)
+      expect(delays[2]).to be_within(0.0001).of(0.003)
+    end
+
+    it "uses equal jitter producing delays in upper half of range" do
+      delays = []
+      callback = ->(_error, _attempt, delay) { delays << delay }
+      attempts = 0
+      described_class.run(
+        max_attempts: 4, backoff: :constant, base_delay: 0.01, jitter: :equal, on_retry: callback
+      ) do
+        attempts += 1
+        raise StandardError, "fail" if attempts < 4
+        "ok"
+      end
+
+      delays.each do |d|
+        expect(d).to be >= 0.005 # half of base_delay
+        expect(d).to be < 0.01   # at most base_delay
       end
     end
   end
@@ -439,6 +552,95 @@ RSpec.describe Philiprehberger::RetryKit do
 
       expect(result).to eq("budget fallback")
     end
+
+    it "does not consume budget on successful attempts" do
+      budget = Philiprehberger::RetryKit::Budget.new(max_retries: 2, window: 60)
+
+      described_class.run(
+        max_attempts: 3,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        budget: budget
+      ) do
+        "success"
+      end
+
+      expect(budget.remaining).to eq(2)
+    end
+  end
+
+  describe "circuit breaker integration" do
+    it "propagates OpenError without retrying" do
+      cb = Philiprehberger::RetryKit::CircuitBreaker.new(failure_threshold: 1, cooldown: 60)
+
+      # Trip the circuit breaker
+      begin
+        cb.call { raise StandardError, "trip" }
+      rescue StandardError
+        nil
+      end
+
+      attempts = 0
+      expect do
+        described_class.run(
+          max_attempts: 5,
+          backoff: :constant,
+          base_delay: 0,
+          jitter: :none,
+          circuit_breaker: cb
+        ) do
+          attempts += 1
+          "should not reach"
+        end
+      end.to raise_error(Philiprehberger::RetryKit::CircuitBreaker::OpenError)
+
+      expect(attempts).to eq(0)
+    end
+
+    it "retries through circuit breaker when closed" do
+      cb = Philiprehberger::RetryKit::CircuitBreaker.new(failure_threshold: 10, cooldown: 60)
+
+      attempts = 0
+      result = described_class.run(
+        max_attempts: 3,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        circuit_breaker: cb
+      ) do
+        attempts += 1
+        raise StandardError, "fail" if attempts < 3
+
+        "ok"
+      end
+
+      expect(result).to eq("ok")
+      expect(attempts).to eq(3)
+    end
+  end
+
+  describe "multiple error classes" do
+    it "retries on any of the specified error classes" do
+      attempts = 0
+      result = described_class.run(
+        max_attempts: 4,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        on: [ArgumentError, IOError]
+      ) do
+        attempts += 1
+        raise ArgumentError, "bad arg" if attempts == 1
+        raise IOError, "io fail" if attempts == 2
+        raise ArgumentError, "bad arg again" if attempts == 3
+
+        "ok"
+      end
+
+      expect(result).to eq("ok")
+      expect(attempts).to eq(4)
+    end
   end
 end
 
@@ -499,6 +701,19 @@ RSpec.describe Philiprehberger::RetryKit::Backoff do
     it "raises on unknown mode" do
       expect { described_class.jitter(10, mode: :unknown) }.to raise_error(ArgumentError)
     end
+
+    it "returns zero for :full jitter with zero delay" do
+      expect(described_class.jitter(0, mode: :full)).to eq(0.0)
+    end
+
+    it "returns zero for :equal jitter with zero delay" do
+      result = described_class.jitter(0, mode: :equal)
+      expect(result).to eq(0.0)
+    end
+
+    it "returns zero for :none jitter with zero delay" do
+      expect(described_class.jitter(0, mode: :none)).to eq(0.0)
+    end
   end
 
   describe ".decorrelated" do
@@ -546,6 +761,20 @@ RSpec.describe Philiprehberger::RetryKit::Budget do
       expect(budget.remaining).to eq(5)
       budget.acquire
       expect(budget.remaining).to eq(4)
+    end
+
+    it "returns zero when fully exhausted" do
+      budget = described_class.new(max_retries: 2, window: 60)
+      budget.acquire
+      budget.acquire
+      expect(budget.remaining).to eq(0)
+    end
+
+    it "never returns negative values" do
+      budget = described_class.new(max_retries: 1, window: 60)
+      budget.acquire
+      budget.acquire # rejected
+      expect(budget.remaining).to be >= 0
     end
   end
 
@@ -639,6 +868,70 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
     expect(breaker.failure_count).to eq(0)
   end
 
+  it "raises ArgumentError when called without a block" do
+    expect { breaker.call }.to raise_error(ArgumentError, "Block required")
+  end
+
+  it "re-opens when a failure occurs in half_open state" do
+    3.times do
+      breaker.call { raise StandardError }
+    rescue StandardError
+      nil
+    end
+
+    expect(breaker.state).to eq(:open)
+    sleep 0.15
+
+    # This attempt in half_open should fail and re-open the circuit
+    begin
+      breaker.call { raise StandardError, "half_open fail" }
+    rescue StandardError
+      nil
+    end
+
+    expect(breaker.state).to eq(:open)
+  end
+
+  it "does not open circuit when failures stay below threshold" do
+    2.times do
+      breaker.call { raise StandardError }
+    rescue StandardError
+      nil
+    end
+
+    expect(breaker.state).to eq(:closed)
+    expect(breaker.failure_count).to eq(2)
+  end
+
+  it "resets failure count on success" do
+    2.times do
+      breaker.call { raise StandardError }
+    rescue StandardError
+      nil
+    end
+
+    breaker.call { "success" }
+    expect(breaker.failure_count).to eq(0)
+  end
+
+  it "includes failure details in OpenError message" do
+    3.times do
+      breaker.call { raise StandardError }
+    rescue StandardError
+      nil
+    end
+
+    expect { breaker.call { "test" } }.to raise_error(
+      Philiprehberger::RetryKit::CircuitBreaker::OpenError,
+      /3 failures.*cooldown: 0.1s/
+    )
+  end
+
+  it "exposes failure_threshold and cooldown readers" do
+    expect(breaker.failure_threshold).to eq(3)
+    expect(breaker.cooldown).to eq(0.1)
+  end
+
   describe "on_state_change" do
     it "calls the callback on state transitions" do
       transitions = []
@@ -676,6 +969,38 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
 
       expect(transitions).to include(%i[open half_open])
       expect(transitions).to include(%i[half_open closed])
+    end
+
+    it "does not fire callback when state stays the same" do
+      transitions = []
+      cb = described_class.new(
+        failure_threshold: 5,
+        cooldown: 0.1,
+        on_state_change: ->(from, to) { transitions << [from, to] }
+      )
+
+      # Success while already closed should not fire callback
+      cb.call { "ok" }
+      expect(transitions).to be_empty
+    end
+
+    it "fires callback on reset from open to closed" do
+      transitions = []
+      cb = described_class.new(
+        failure_threshold: 2,
+        cooldown: 0.1,
+        on_state_change: ->(from, to) { transitions << [from, to] }
+      )
+
+      2.times do
+        cb.call { raise StandardError }
+      rescue StandardError
+        nil
+      end
+
+      transitions.clear
+      cb.reset
+      expect(transitions).to eq([%i[open closed]])
     end
   end
 end
