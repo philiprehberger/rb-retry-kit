@@ -19,8 +19,8 @@ module Philiprehberger
   end
 end
 
-require_relative "retry_kit/version"
-require_relative "retry_kit/backoff"
-require_relative "retry_kit/budget"
-require_relative "retry_kit/circuit_breaker"
-require_relative "retry_kit/executor"
+require_relative 'retry_kit/version'
+require_relative 'retry_kit/backoff'
+require_relative 'retry_kit/budget'
+require_relative 'retry_kit/circuit_breaker'
+require_relative 'retry_kit/executor'
