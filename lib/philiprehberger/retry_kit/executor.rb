@@ -32,24 +32,23 @@ module Philiprehberger
       def call(&block)
         raise ArgumentError, "Block required" unless block
 
-        attempt = 0
-
-        begin
-          attempt += 1
-          execute_attempt(&block)
-        rescue CircuitBreaker::OpenError
-          raise
-        rescue *@retryable_errors => e
-          raise e if attempt >= @max_attempts
-
-          delay = compute_delay(attempt - 1)
-          @on_retry&.call(e, attempt, delay)
-          sleep(delay)
-          retry
-        end
+        attempt_with_retries(0, &block)
       end
 
       private
+
+      def attempt_with_retries(attempt, &block)
+        execute_attempt(&block)
+      rescue CircuitBreaker::OpenError
+        raise
+      rescue *@retryable_errors => e
+        raise e if attempt + 1 >= @max_attempts
+
+        delay = compute_delay(attempt)
+        @on_retry&.call(e, attempt + 1, delay)
+        sleep(delay)
+        attempt_with_retries(attempt + 1, &block)
+      end
 
       def execute_attempt(&block)
         if @circuit_breaker

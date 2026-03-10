@@ -3,16 +3,7 @@
 module Philiprehberger
   module RetryKit
     class Error < StandardError; end
-  end
-end
 
-require_relative "retry_kit/version"
-require_relative "retry_kit/backoff"
-require_relative "retry_kit/circuit_breaker"
-require_relative "retry_kit/executor"
-
-module Philiprehberger
-  module RetryKit
     # Execute a block with retry logic.
     #
     # @param options [Hash] options passed to Executor.new
@@ -24,3 +15,8 @@ module Philiprehberger
     end
   end
 end
+
+require_relative "retry_kit/version"
+require_relative "retry_kit/backoff"
+require_relative "retry_kit/circuit_breaker"
+require_relative "retry_kit/executor"
