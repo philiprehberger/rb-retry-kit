@@ -37,7 +37,7 @@ RSpec.describe Philiprehberger::RetryKit do
     it "only retries specified error classes" do
       expect do
         described_class.run(max_attempts: 3, on: [ArgumentError], backoff: :constant, base_delay: 0, jitter: :none) do
-          raise RuntimeError, "wrong type"
+          raise "wrong type"
         end
       end.to raise_error(RuntimeError, "wrong type")
     end
