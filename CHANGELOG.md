@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-12
+
+### Added
+- `total_timeout` option to raise `TotalTimeoutError` when total elapsed time exceeds limit
+- Execution stats: `last_attempts` and `last_total_delay` on Executor
+- `on_state_change` callback on CircuitBreaker for state transition notifications
+
+### Fixed
+- Removed undocumented `:decorrelated` jitter mode from docstring (was never implemented)
+
 ## [0.1.0] - 2026-03-10
 
 ### Added

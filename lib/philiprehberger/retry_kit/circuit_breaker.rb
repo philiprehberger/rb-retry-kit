@@ -15,9 +15,11 @@ module Philiprehberger
 
       # @param failure_threshold [Integer] number of failures before opening
       # @param cooldown [Numeric] seconds to wait before transitioning to half-open
-      def initialize(failure_threshold: 5, cooldown: 30)
+      # @param on_state_change [Proc, nil] callback when state changes, receives (old_state, new_state)
+      def initialize(failure_threshold: 5, cooldown: 30, on_state_change: nil)
         @failure_threshold = failure_threshold
         @cooldown = cooldown
+        @on_state_change = on_state_change
         @failure_count = 0
         @state = :closed
         @last_failure_time = nil
@@ -48,7 +50,7 @@ module Philiprehberger
       def reset
         @mutex.synchronize do
           @failure_count = 0
-          @state = :closed
+          transition_to(:closed)
           @last_failure_time = nil
         end
       end
@@ -62,7 +64,7 @@ module Philiprehberger
             raise OpenError, "Circuit is open (#{@failure_count} failures, cooldown: #{@cooldown}s)"
           end
 
-          @state = :half_open
+          transition_to(:half_open)
         when :half_open
           # Allow one attempt through
         end
@@ -71,7 +73,7 @@ module Philiprehberger
       def record_success
         @mutex.synchronize do
           @failure_count = 0
-          @state = :closed
+          transition_to(:closed)
           @last_failure_time = nil
         end
       end
@@ -81,8 +83,14 @@ module Philiprehberger
           @failure_count += 1
           @last_failure_time = Time.now
 
-          @state = :open if @failure_count >= @failure_threshold
+          transition_to(:open) if @failure_count >= @failure_threshold
         end
+      end
+
+      def transition_to(new_state)
+        old_state = @state
+        @state = new_state
+        @on_state_change&.call(old_state, new_state) if old_state != new_state
       end
 
       def cooldown_elapsed?

@@ -68,6 +68,31 @@ Philiprehberger::RetryKit.run(
 end
 ```
 
+### Total Timeout
+
+Limit the total elapsed time across all retries:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  max_attempts: 10,
+  total_timeout: 30  # seconds — raises TotalTimeoutError if exceeded
+) do
+  slow_operation
+end
+```
+
+### Execution Stats
+
+Use `Executor` directly to access stats after execution:
+
+```ruby
+executor = Philiprehberger::RetryKit::Executor.new(max_attempts: 5)
+executor.call { api.request }
+
+executor.last_attempts     # => 3 (number of attempts made)
+executor.last_total_delay  # => 3.5 (total seconds spent in backoff sleeps)
+```
+
 ### Backoff Strategies
 
 ```ruby
@@ -86,7 +111,8 @@ Philiprehberger::RetryKit.run(backoff: :constant, base_delay: 1)
 ```ruby
 breaker = Philiprehberger::RetryKit::CircuitBreaker.new(
   failure_threshold: 5,
-  cooldown: 30
+  cooldown: 30,
+  on_state_change: ->(from, to) { puts "Circuit: #{from} -> #{to}" }
 )
 
 # Use with retry
@@ -127,7 +153,10 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | `Backoff.exponential(attempt, base_delay:, max_delay:)` | Calculate exponential delay |
 | `Backoff.linear(attempt, base_delay:, max_delay:)` | Calculate linear delay |
 | `Backoff.constant(attempt, delay:)` | Calculate constant delay |
-| `Backoff.jitter(delay, mode:)` | Apply jitter to a delay |
+| `Backoff.jitter(delay, mode:)` | Apply jitter to a delay (`:full`, `:equal`, `:none`) |
+| `Executor#last_attempts` | Number of attempts in the last execution |
+| `Executor#last_total_delay` | Total backoff sleep time (seconds) in the last execution |
+| `TotalTimeoutError` | Raised when `total_timeout` is exceeded |
 
 ## Development
 
