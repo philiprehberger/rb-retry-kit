@@ -94,6 +94,85 @@ executor.last_attempts     # => 3 (number of attempts made)
 executor.last_total_delay  # => 3.5 (total seconds spent in backoff sleeps)
 ```
 
+### Decorrelated Jitter
+
+AWS-style decorrelated jitter provides better delay distribution than full or equal jitter:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  backoff: :exponential,
+  jitter: :decorrelated,
+  base_delay: 0.5,
+  max_delay: 30
+) do
+  api_call
+end
+```
+
+Each delay is randomized between `base_delay` and `3 * last_sleep`, capped at `max_delay`.
+
+### Fallback Handler
+
+Execute alternative code when all retries are exhausted instead of raising:
+
+```ruby
+result = Philiprehberger::RetryKit.run(
+  max_attempts: 3,
+  fallback: ->(error) { default_value }
+) do
+  unreliable_call
+end
+```
+
+The fallback proc receives the last error and its return value becomes the result of `run`.
+
+### Retry Predicate
+
+Custom predicate for fine-grained retry decisions beyond exception class filtering:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  retry_if: ->(error, attempt) { error.message.include?("timeout") && attempt < 3 }
+) do
+  api_call
+end
+```
+
+If `retry_if` returns false, retrying stops immediately even if `max_attempts` has not been reached. Works in addition to the `on:` exception class filter (both must pass).
+
+### Per-Attempt Callback
+
+Hook called after every attempt (not just retries) for metrics and logging:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  on_attempt: ->(attempt, duration, error) {
+    puts "Attempt #{attempt} took #{duration}s#{error ? " (failed: #{error.message})" : ""}"
+  }
+) do
+  api_call
+end
+```
+
+Called after each attempt with: attempt number (1-based), duration in seconds, and error (`nil` on success).
+
+### Retry Budget
+
+Global retry budget shared across executors to prevent retry storms:
+
+```ruby
+budget = Philiprehberger::RetryKit::Budget.new(max_retries: 100, window: 60)
+
+# Multiple executors share the budget
+Philiprehberger::RetryKit.run(budget: budget) { call_a }
+Philiprehberger::RetryKit.run(budget: budget) { call_b }
+
+budget.remaining   # => remaining retry count
+budget.exhausted?  # => true/false
+```
+
+Thread-safe sliding window counter. When the budget is exhausted, retries are skipped and the error is raised immediately (or the fallback is invoked if provided).
+
 ### Backoff Strategies
 
 ```ruby
@@ -155,6 +234,11 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | `Backoff.linear(attempt, base_delay:, max_delay:)` | Calculate linear delay |
 | `Backoff.constant(attempt, delay:)` | Calculate constant delay |
 | `Backoff.jitter(delay, mode:)` | Apply jitter to a delay (`:full`, `:equal`, `:none`) |
+| `Backoff.decorrelated(last_delay, base_delay:, max_delay:)` | Calculate decorrelated jitter delay |
+| `Budget.new(max_retries:, window:)` | Create a shared retry budget |
+| `Budget#acquire` | Consume one retry from the budget |
+| `Budget#remaining` | Remaining retries in the current window |
+| `Budget#exhausted?` | Whether the budget is exhausted |
 | `Executor#last_attempts` | Number of attempts in the last execution |
 | `Executor#last_total_delay` | Total backoff sleep time (seconds) in the last execution |
 | `TotalTimeoutError` | Raised when `total_timeout` is exceeded |

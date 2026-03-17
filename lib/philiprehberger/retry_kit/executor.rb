@@ -22,6 +22,10 @@ module Philiprehberger
       # @option options [CircuitBreaker, nil] :circuit_breaker (nil) optional circuit breaker
       # @option options [Proc, nil] :on_retry (nil) callback before each retry
       # @option options [Numeric, nil] :total_timeout (nil) max total seconds across all attempts
+      # @option options [Proc, nil] :fallback (nil) handler called with last error when all retries exhausted
+      # @option options [Proc, nil] :retry_if (nil) predicate receiving (error, attempt) to decide whether to retry
+      # @option options [Proc, nil] :on_attempt (nil) callback after each attempt: (attempt, duration, error)
+      # @option options [Budget, nil] :budget (nil) shared retry budget
       def initialize(**options)
         assign_options(options)
         @last_attempts = 0
@@ -38,6 +42,7 @@ module Philiprehberger
 
         @last_attempts = 0
         @last_total_delay = 0.0
+        @last_decorrelated_delay = @base_delay
         @start_time = @total_timeout ? Process.clock_gettime(Process::CLOCK_MONOTONIC) : nil
 
         attempt_with_retries(0, &block)
@@ -48,11 +53,26 @@ module Philiprehberger
       def attempt_with_retries(attempt, &)
         @last_attempts = attempt + 1
         check_total_timeout!
-        execute_attempt(&)
+        attempt_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        result = execute_attempt(&)
+        duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_start
+        @on_attempt&.call(attempt + 1, duration, nil)
+        result
       rescue CircuitBreaker::OpenError, TotalTimeoutError
         raise
       rescue *@retryable_errors => e
-        raise e if attempt + 1 >= @max_attempts
+        duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_start
+        @on_attempt&.call(attempt + 1, duration, e)
+
+        should_stop = attempt + 1 >= @max_attempts
+        should_stop ||= @retry_if && !@retry_if.call(e, attempt + 1)
+        should_stop ||= @budget && !@budget.acquire
+
+        if should_stop
+          return @fallback.call(e) if @fallback
+
+          raise e
+        end
 
         wait_and_retry(e, attempt, &)
       end
@@ -75,6 +95,10 @@ module Philiprehberger
         @circuit_breaker = options[:circuit_breaker]
         @on_retry = options[:on_retry]
         @total_timeout = options[:total_timeout]
+        @fallback = options[:fallback]
+        @retry_if = options[:retry_if]
+        @on_attempt = options[:on_attempt]
+        @budget = options[:budget]
       end
 
       def check_total_timeout!
@@ -96,8 +120,14 @@ module Philiprehberger
       end
 
       def compute_delay(attempt)
-        raw = backoff_delay(attempt)
-        Backoff.jitter(raw, mode: @jitter)
+        if @jitter == :decorrelated
+          delay = Backoff.decorrelated(@last_decorrelated_delay, base_delay: @base_delay, max_delay: @max_delay)
+          @last_decorrelated_delay = delay
+          delay
+        else
+          raw = backoff_delay(attempt)
+          Backoff.jitter(raw, mode: @jitter)
+        end
       end
 
       def backoff_delay(attempt)

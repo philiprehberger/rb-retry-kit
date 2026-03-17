@@ -1,16 +1,26 @@
 # Changelog
 
-## 0.2.2
-
-- Add License badge to README
-- Add bug_tracker_uri to gemspec
-
 All notable changes to this gem will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-03-16
+
+### Added
+- Decorrelated jitter mode (`jitter: :decorrelated`) — AWS-style algorithm with better delay distribution
+- Fallback handler (`fallback:`) — execute alternative code when all retries are exhausted instead of raising
+- Retry predicate (`retry_if:`) — custom predicate for fine-grained retry decisions beyond exception class filtering
+- Per-attempt callback (`on_attempt:`) — hook called after every attempt for metrics/logging
+- Retry budget (`Budget`) — thread-safe sliding window counter shared across executors to prevent retry storms
+
+## [0.2.2] - 2026-03-12
+
+### Fixed
+- Add License badge to README
+- Add bug_tracker_uri to gemspec
 
 ## [0.2.1] - 2026-03-12
 
