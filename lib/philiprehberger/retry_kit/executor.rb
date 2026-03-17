@@ -53,28 +53,39 @@ module Philiprehberger
       def attempt_with_retries(attempt, &)
         @last_attempts = attempt + 1
         check_total_timeout!
-        attempt_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        result, duration, error = timed_attempt(&)
+        @on_attempt&.call(attempt + 1, duration, error)
+        return result unless error
+
+        handle_failure(error, attempt, &)
+      end
+
+      def timed_attempt(&)
+        start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         result = execute_attempt(&)
-        duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_start
-        @on_attempt&.call(attempt + 1, duration, nil)
-        result
+        [result, Process.clock_gettime(Process::CLOCK_MONOTONIC) - start, nil]
       rescue CircuitBreaker::OpenError, TotalTimeoutError
         raise
       rescue *@retryable_errors => e
-        duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - attempt_start
-        @on_attempt&.call(attempt + 1, duration, e)
+        [nil, Process.clock_gettime(Process::CLOCK_MONOTONIC) - start, e]
+      end
 
-        should_stop = attempt + 1 >= @max_attempts
-        should_stop ||= @retry_if && !@retry_if.call(e, attempt + 1)
-        should_stop ||= @budget && !@budget.acquire
+      def handle_failure(error, attempt, &)
+        if should_stop?(error, attempt)
+          return @fallback.call(error) if @fallback
 
-        if should_stop
-          return @fallback.call(e) if @fallback
-
-          raise e
+          raise error
         end
 
-        wait_and_retry(e, attempt, &)
+        wait_and_retry(error, attempt, &)
+      end
+
+      def should_stop?(error, attempt)
+        return true if attempt + 1 >= @max_attempts
+        return true if @retry_if && !@retry_if.call(error, attempt + 1)
+        return true if @budget && !@budget.acquire
+
+        false
       end
 
       def wait_and_retry(error, attempt, &)
@@ -86,12 +97,20 @@ module Philiprehberger
       end
 
       def assign_options(options)
+        assign_core_options(options)
+        assign_callback_options(options)
+      end
+
+      def assign_core_options(options)
         @max_attempts = options.fetch(:max_attempts, 3)
         @backoff = options.fetch(:backoff, :exponential)
         @base_delay = options.fetch(:base_delay, 0.5)
         @max_delay = options.fetch(:max_delay, 30)
         @jitter = options.fetch(:jitter, :full)
         @retryable_errors = Array(options.fetch(:on, [StandardError]))
+      end
+
+      def assign_callback_options(options)
         @circuit_breaker = options[:circuit_breaker]
         @on_retry = options[:on_retry]
         @total_timeout = options[:total_timeout]

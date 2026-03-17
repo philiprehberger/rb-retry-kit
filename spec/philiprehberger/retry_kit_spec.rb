@@ -181,7 +181,10 @@ RSpec.describe Philiprehberger::RetryKit do
         backoff: :constant,
         base_delay: 0,
         jitter: :none,
-        fallback: ->(error) { received_error = error; nil }
+        fallback: lambda { |error|
+          received_error = error
+          nil
+        }
       ) do
         raise StandardError, "specific failure"
       end
@@ -194,7 +197,10 @@ RSpec.describe Philiprehberger::RetryKit do
       fallback_called = false
       result = described_class.run(
         max_attempts: 3,
-        fallback: ->(_error) { fallback_called = true; "fallback" }
+        fallback: lambda { |_error|
+          fallback_called = true
+          "fallback"
+        }
       ) do
         "success"
       end
@@ -239,7 +245,10 @@ RSpec.describe Philiprehberger::RetryKit do
           backoff: :constant,
           base_delay: 0,
           jitter: :none,
-          retry_if: ->(error, attempt) { received << [error.message, attempt]; true }
+          retry_if: lambda { |error, attempt|
+            received << [error.message, attempt]
+            true
+          }
         ) do
           raise StandardError, "test error"
         end
@@ -264,7 +273,7 @@ RSpec.describe Philiprehberger::RetryKit do
           retry_if: ->(_error, _attempt) { true }
         ) do
           attempts += 1
-          raise RuntimeError, "not retryable"
+          raise "not retryable"
         end
       end.to raise_error(RuntimeError)
 
@@ -296,7 +305,7 @@ RSpec.describe Philiprehberger::RetryKit do
         backoff: :constant,
         base_delay: 0,
         jitter: :none,
-        on_attempt: ->(attempt, duration, error) { attempt_log << { attempt: attempt, error: error } }
+        on_attempt: ->(attempt, _duration, error) { attempt_log << { attempt: attempt, error: error } }
       ) do
         attempts += 1
         raise StandardError, "fail" if attempts < 3
@@ -556,8 +565,6 @@ RSpec.describe Philiprehberger::RetryKit::Budget do
   describe "thread safety" do
     it "handles concurrent access without exceeding the budget" do
       budget = described_class.new(max_retries: 100, window: 60)
-      acquired = Concurrent::AtomicFixnum.new(0) if defined?(Concurrent)
-
       threads = Array.new(10) do
         Thread.new do
           50.times do
