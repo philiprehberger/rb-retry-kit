@@ -2,7 +2,6 @@
 
 module Philiprehberger
   module RetryKit
-    # Executes a block with configurable retry logic, backoff, and optional circuit breaker.
     class Executor
       attr_reader :last_attempts, :last_total_delay
 
@@ -106,22 +105,18 @@ module Philiprehberger
       end
 
       def execute_attempt(&)
-        if @circuit_breaker
-          @circuit_breaker.call(&)
-        else
-          yield
-        end
+        @circuit_breaker ? @circuit_breaker.call(&) : yield
       end
 
       def compute_delay(attempt)
-        if @jitter == :decorrelated
-          delay = Backoff.decorrelated(@last_decorrelated_delay, base_delay: @base_delay, max_delay: @max_delay)
-          @last_decorrelated_delay = delay
-          delay
-        else
-          raw = backoff_delay(attempt)
-          Backoff.jitter(raw, mode: @jitter)
-        end
+        return compute_decorrelated_delay if @jitter == :decorrelated
+
+        Backoff.jitter(backoff_delay(attempt), mode: @jitter)
+      end
+
+      def compute_decorrelated_delay
+        delay = Backoff.decorrelated(@last_decorrelated_delay, base_delay: @base_delay, max_delay: @max_delay)
+        @last_decorrelated_delay = delay
       end
 
       def backoff_delay(attempt)
