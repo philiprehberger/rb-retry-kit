@@ -3,6 +3,7 @@
 [![Tests](https://github.com/philiprehberger/rb-retry-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/rb-retry-kit/actions/workflows/ci.yml)
 [![Gem Version](https://badge.fury.io/rb/philiprehberger-retry_kit.svg)](https://rubygems.org/gems/philiprehberger-retry_kit)
 [![License](https://img.shields.io/github/license/philiprehberger/rb-retry-kit)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
 Retry with exponential backoff, jitter, and circuit breaker
 
@@ -247,4 +248,4 @@ bundle exec rubocop
 
 ## License
 
-MIT
+[MIT](LICENSE)
