@@ -12,7 +12,7 @@ module Philiprehberger
       end
 
       def call(&block)
-        raise ArgumentError, "Block required" unless block
+        raise ArgumentError, 'Block required' unless block
 
         @last_attempts = 0
         @last_total_delay = 0.0

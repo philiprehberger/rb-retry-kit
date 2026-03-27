@@ -32,7 +32,7 @@ module Philiprehberger
       # @return the block's return value
       # @raise [OpenError] if the circuit is open
       def call(&block)
-        raise ArgumentError, "Block required" unless block
+        raise ArgumentError, 'Block required' unless block
 
         @mutex.synchronize { check_state! }
 
