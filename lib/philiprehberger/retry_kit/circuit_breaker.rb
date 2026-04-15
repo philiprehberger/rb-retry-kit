@@ -55,6 +55,20 @@ module Philiprehberger
         end
       end
 
+      # Force the circuit open, bypassing the failure threshold. Useful for
+      # operational controls (e.g. tripping the breaker from an admin panel
+      # when upstream is known to be unhealthy).
+      #
+      # @return [self]
+      def trip!
+        @mutex.synchronize do
+          @failure_count = @failure_threshold
+          @last_failure_time = Time.now
+          transition_to(:open)
+        end
+        self
+      end
+
       private
 
       def check_state!
