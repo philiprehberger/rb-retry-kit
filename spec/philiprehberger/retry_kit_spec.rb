@@ -645,6 +645,144 @@ RSpec.describe Philiprehberger::RetryKit do
       expect(attempts).to eq(4)
     end
   end
+
+  describe 'on_giveup callback' do
+    it 'fires when all attempts are exhausted' do
+      giveup = nil
+      expect do
+        described_class.run(
+          max_attempts: 3,
+          backoff: :constant,
+          base_delay: 0,
+          jitter: :none,
+          on_giveup: ->(error, attempts) { giveup = { message: error.message, attempts: attempts } }
+        ) do
+          raise StandardError, 'boom'
+        end
+      end.to raise_error(StandardError, 'boom')
+
+      expect(giveup).to eq(message: 'boom', attempts: 3)
+    end
+
+    it 'does not fire on success' do
+      fired = false
+      described_class.run(
+        max_attempts: 3,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        on_giveup: ->(_error, _attempts) { fired = true }
+      ) do
+        'ok'
+      end
+
+      expect(fired).to be(false)
+    end
+
+    it 'fires before the fallback runs' do
+      order = []
+      described_class.run(
+        max_attempts: 2,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        on_giveup: ->(_error, _attempts) { order << :giveup },
+        fallback: lambda { |_error|
+          order << :fallback
+          'fb'
+        }
+      ) do
+        raise StandardError, 'fail'
+      end
+
+      expect(order).to eq(%i[giveup fallback])
+    end
+
+    it 'fires when retry_if stops retries early' do
+      giveup_attempts = nil
+      expect do
+        described_class.run(
+          max_attempts: 10,
+          backoff: :constant,
+          base_delay: 0,
+          jitter: :none,
+          retry_if: ->(_error, attempt) { attempt < 2 },
+          on_giveup: ->(_error, attempts) { giveup_attempts = attempts }
+        ) do
+          raise StandardError, 'fail'
+        end
+      end.to raise_error(StandardError, 'fail')
+
+      expect(giveup_attempts).to eq(2)
+    end
+  end
+
+  describe 'absolute deadline' do
+    it 'raises DeadlineExceededError when the deadline has passed' do
+      deadline = Time.now - 1
+      expect do
+        described_class.run(
+          max_attempts: 5,
+          backoff: :constant,
+          base_delay: 0,
+          jitter: :none,
+          deadline: deadline
+        ) do
+          'never reached'
+        end
+      end.to raise_error(Philiprehberger::RetryKit::DeadlineExceededError, /exceeded/)
+    end
+
+    it 'runs normally when the deadline is in the future' do
+      result = described_class.run(
+        max_attempts: 3,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        deadline: Time.now + 60
+      ) do
+        'ok'
+      end
+
+      expect(result).to eq('ok')
+    end
+
+    it 'stops retrying once the deadline is reached mid-run' do
+      deadline = Time.now + 0.1
+      attempts = 0
+      expect do
+        described_class.run(
+          max_attempts: 100,
+          backoff: :constant,
+          base_delay: 0.05,
+          jitter: :none,
+          deadline: deadline
+        ) do
+          attempts += 1
+          raise StandardError, 'fail'
+        end
+      end.to raise_error(Philiprehberger::RetryKit::DeadlineExceededError)
+
+      expect(attempts).to be < 100
+    end
+
+    it 'is not caught by the retryable_errors filter' do
+      # DeadlineExceededError must propagate even when the :on list would
+      # normally swallow any StandardError subclass.
+      expect do
+        described_class.run(
+          max_attempts: 3,
+          backoff: :constant,
+          base_delay: 0,
+          jitter: :none,
+          on: [StandardError],
+          deadline: Time.now - 5
+        ) do
+          'never'
+        end
+      end.to raise_error(Philiprehberger::RetryKit::DeadlineExceededError)
+    end
+  end
 end
 
 RSpec.describe Philiprehberger::RetryKit::Backoff do
@@ -791,6 +929,33 @@ RSpec.describe Philiprehberger::RetryKit::Budget do
       budget = described_class.new(max_retries: 1, window: 60)
       budget.acquire
       expect(budget.exhausted?).to be(true)
+    end
+  end
+
+  describe '#reset' do
+    it 'clears all recorded retries' do
+      budget = described_class.new(max_retries: 2, window: 60)
+      budget.acquire
+      budget.acquire
+      expect(budget.exhausted?).to be(true)
+
+      budget.reset
+      expect(budget.remaining).to eq(2)
+      expect(budget.exhausted?).to be(false)
+    end
+
+    it 'returns self for chaining' do
+      budget = described_class.new(max_retries: 3, window: 60)
+      expect(budget.reset).to be(budget)
+    end
+
+    it 'allows subsequent acquires after reset' do
+      budget = described_class.new(max_retries: 1, window: 60)
+      budget.acquire
+      expect(budget.acquire).to be(false)
+
+      budget.reset
+      expect(budget.acquire).to be(true)
     end
   end
 
@@ -1004,6 +1169,49 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
       transitions.clear
       cb.reset
       expect(transitions).to eq([%i[open closed]])
+    end
+  end
+
+  describe '#trip!' do
+    subject(:breaker) { described_class.new(failure_threshold: 10, cooldown: 60) }
+
+    it 'forces the circuit open immediately' do
+      expect(breaker.state).to eq(:closed)
+      breaker.trip!
+      expect(breaker.state).to eq(:open)
+    end
+
+    it 'causes subsequent calls to raise OpenError' do
+      breaker.trip!
+      expect { breaker.call { 'never' } }.to raise_error(Philiprehberger::RetryKit::CircuitBreaker::OpenError)
+    end
+
+    it 'sets failure_count to the threshold' do
+      breaker.trip!
+      expect(breaker.failure_count).to eq(breaker.failure_threshold)
+    end
+
+    it 'fires the on_state_change callback' do
+      transitions = []
+      cb = described_class.new(
+        failure_threshold: 5,
+        cooldown: 60,
+        on_state_change: ->(from, to) { transitions << [from, to] }
+      )
+
+      cb.trip!
+      expect(transitions).to eq([%i[closed open]])
+    end
+
+    it 'returns self for chaining' do
+      expect(breaker.trip!).to be(breaker)
+    end
+
+    it 'can be recovered with reset' do
+      breaker.trip!
+      expect(breaker.state).to eq(:open)
+      breaker.reset
+      expect(breaker.state).to eq(:closed)
     end
   end
 end

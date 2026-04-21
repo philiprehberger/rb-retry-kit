@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-15
+
+### Added
+- `deadline:` option — absolute wall-clock `Time` cutoff; raises `DeadlineExceededError` once reached (complements the relative `total_timeout:`)
+- `on_giveup:` callback — fires exactly once when the executor stops retrying, before the fallback runs or the error is re-raised; ideal for metrics and alerting
+- `Budget#reset` — clear all recorded retries from a shared budget
+- `CircuitBreaker#trip!` — operational kill-switch that forces the circuit open without waiting for the failure threshold
+
 ## [0.3.7] - 2026-03-31
 
 ### Added
@@ -87,3 +95,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Circuit breaker with configurable threshold and cooldown
 - Retry executor with max attempts, retryable error filtering, and on_retry callback
 - Convenience `RetryKit.run` class method
+
+[Unreleased]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.7...v0.4.0
+[0.3.7]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.6...v0.3.7
+[0.3.6]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/philiprehberger/rb-retry-kit/releases/tag/v0.1.0

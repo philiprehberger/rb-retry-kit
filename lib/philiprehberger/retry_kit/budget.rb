@@ -49,6 +49,15 @@ module Philiprehberger
         remaining <= 0
       end
 
+      # Clear all recorded retries. Useful in tests and when manually
+      # recovering from a retry storm.
+      #
+      # @return [self]
+      def reset
+        @mutex.synchronize { @timestamps.clear }
+        self
+      end
+
       private
 
       def prune

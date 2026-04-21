@@ -27,6 +27,7 @@ module Philiprehberger
       def attempt_with_retries(attempt, &)
         @last_attempts = attempt + 1
         check_total_timeout!
+        check_deadline!
         result, duration, error = timed_attempt(&)
         @on_attempt&.call(attempt + 1, duration, error)
         return result unless error
@@ -38,7 +39,7 @@ module Philiprehberger
         start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         result = execute_attempt(&)
         [result, Process.clock_gettime(Process::CLOCK_MONOTONIC) - start, nil]
-      rescue CircuitBreaker::OpenError, TotalTimeoutError
+      rescue CircuitBreaker::OpenError, TotalTimeoutError, DeadlineExceededError
         raise
       rescue *@retryable_errors => e
         [nil, Process.clock_gettime(Process::CLOCK_MONOTONIC) - start, e]
@@ -46,6 +47,7 @@ module Philiprehberger
 
       def handle_failure(error, attempt, &)
         if should_stop?(error, attempt)
+          @on_giveup&.call(error, attempt + 1)
           return @fallback.call(error) if @fallback
 
           raise error
@@ -91,7 +93,9 @@ module Philiprehberger
         @fallback = options[:fallback]
         @retry_if = options[:retry_if]
         @on_attempt = options[:on_attempt]
+        @on_giveup = options[:on_giveup]
         @budget = options[:budget]
+        @deadline = options[:deadline]
       end
 
       def check_total_timeout!
@@ -102,6 +106,14 @@ module Philiprehberger
 
         raise TotalTimeoutError,
               "Total timeout of #{@total_timeout}s exceeded (#{elapsed.round(2)}s elapsed)"
+      end
+
+      def check_deadline!
+        return unless @deadline
+        return if Time.now < @deadline
+
+        raise DeadlineExceededError,
+              "Deadline #{@deadline.iso8601} exceeded at #{Time.now.iso8601}"
       end
 
       def execute_attempt(&)

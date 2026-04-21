@@ -76,6 +76,21 @@ Philiprehberger::RetryKit.run(
 end
 ```
 
+### Absolute Deadline
+
+Stop retrying once a specific wall-clock `Time` has passed. Useful when the caller has a hard SLA (e.g. "respond before the request times out") rather than a relative budget:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  max_attempts: 50,
+  deadline: Time.now + 10  # raises DeadlineExceededError once Time.now >= deadline
+) do
+  api_call
+end
+```
+
+`deadline:` composes with `total_timeout:` — whichever is hit first wins. `DeadlineExceededError` is never caught by the `on:` retryable-errors filter, so it always propagates.
+
 ### Execution Stats
 
 Use `Executor` directly to access stats after execution:
@@ -150,6 +165,23 @@ end
 
 Called after each attempt with: attempt number (1-based), duration in seconds, and error (`nil` on success).
 
+### Give-up Callback
+
+Fired exactly once when the executor stops retrying (attempts exhausted, `retry_if` returned false, or budget ran out). Runs before the `fallback` is invoked or the error is re-raised:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  max_attempts: 3,
+  on_giveup: ->(error, attempts) {
+    Metrics.increment("retry.giveup", tags: { reason: error.class.name, attempts: attempts })
+  }
+) do
+  unreliable_call
+end
+```
+
+Useful for metrics, alerting, and structured logging at the point of failure.
+
 ### Retry Budget
 
 Global retry budget shared across executors to prevent retry storms:
@@ -163,6 +195,7 @@ Philiprehberger::RetryKit.run(budget: budget) { call_b }
 
 budget.remaining   # => remaining retry count
 budget.exhausted?  # => true/false
+budget.reset       # clear all recorded retries
 ```
 
 Thread-safe sliding window counter. When the budget is exhausted, retries are skipped and the error is raised immediately (or the fallback is invoked if provided).
@@ -200,7 +233,8 @@ breaker.call { risky_operation }
 # Check state
 breaker.state        # => :closed, :open, or :half_open
 breaker.failure_count
-breaker.reset
+breaker.reset        # reset to closed
+breaker.trip!        # force open immediately (operational kill-switch)
 ```
 
 ### Backoff Utilities
@@ -220,10 +254,13 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | `RetryKit.run(**options, &block)` | Execute a block with retry logic |
 | `Executor.new(**options)` | Create a reusable retry executor |
 | `Executor#call(&block)` | Execute the block with retries |
+| `Executor#last_attempts` | Number of attempts in the last execution |
+| `Executor#last_total_delay` | Total backoff sleep time (seconds) in the last execution |
 | `CircuitBreaker.new(failure_threshold:, cooldown:)` | Create a circuit breaker |
 | `CircuitBreaker#call(&block)` | Execute through the circuit breaker |
 | `CircuitBreaker#state` | Current state (`:closed`, `:open`, `:half_open`) |
 | `CircuitBreaker#reset` | Reset to closed state |
+| `CircuitBreaker#trip!` | Force the circuit open (operational kill-switch) |
 | `Backoff.exponential(attempt, base_delay:, max_delay:)` | Calculate exponential delay |
 | `Backoff.linear(attempt, base_delay:, max_delay:)` | Calculate linear delay |
 | `Backoff.constant(attempt, delay:)` | Calculate constant delay |
@@ -233,9 +270,9 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | `Budget#acquire` | Consume one retry from the budget |
 | `Budget#remaining` | Remaining retries in the current window |
 | `Budget#exhausted?` | Whether the budget is exhausted |
-| `Executor#last_attempts` | Number of attempts in the last execution |
-| `Executor#last_total_delay` | Total backoff sleep time (seconds) in the last execution |
+| `Budget#reset` | Clear all recorded retries |
 | `TotalTimeoutError` | Raised when `total_timeout` is exceeded |
+| `DeadlineExceededError` | Raised when the absolute `deadline:` has passed |
 
 ## Development
 
