@@ -717,6 +717,86 @@ RSpec.describe Philiprehberger::RetryKit do
     end
   end
 
+  describe 'PRESETS' do
+    it 'is a frozen Hash' do
+      expect(described_class::PRESETS).to be_a(Hash)
+      expect(described_class::PRESETS).to be_frozen
+    end
+
+    it 'includes the expected preset names' do
+      expect(described_class::PRESETS.keys).to include(:aggressive, :conservative, :network)
+    end
+
+    it 'freezes each preset hash' do
+      described_class::PRESETS.each_value do |preset|
+        expect(preset).to be_a(Hash)
+        expect(preset).to be_frozen
+      end
+    end
+
+    it 'uses only keyword arguments accepted by .run' do
+      accepted = %i[
+        max_attempts backoff base_delay max_delay jitter on
+        circuit_breaker on_retry total_timeout fallback retry_if
+        on_attempt on_giveup budget deadline
+      ]
+      described_class::PRESETS.each_value do |preset|
+        expect(preset.keys - accepted).to eq([])
+      end
+    end
+
+    it 'has expected core keys on every preset' do
+      described_class::PRESETS.each_value do |preset|
+        expect(preset).to include(:max_attempts, :backoff, :base_delay, :max_delay, :jitter)
+      end
+    end
+  end
+
+  describe '.with_preset' do
+    it 'runs the block and returns its value on success' do
+      result = described_class.with_preset(:aggressive) { 42 }
+      expect(result).to eq(42)
+    end
+
+    it 'raises ArgumentError for an unknown preset' do
+      expect do
+        described_class.with_preset(:does_not_exist) { 'never' }
+      end.to raise_error(ArgumentError, 'Unknown preset: does_not_exist')
+    end
+
+    it 'lets overrides win when both are specified' do
+      attempts = 0
+      expect do
+        described_class.with_preset(:aggressive, max_attempts: 2, base_delay: 0, jitter: :none) do
+          attempts += 1
+          raise StandardError, 'boom'
+        end
+      end.to raise_error(StandardError, 'boom')
+
+      # :aggressive defaults to 3 attempts; override should reduce it to 2
+      expect(attempts).to eq(2)
+    end
+
+    it 'propagates the block error after exhausting attempts' do
+      attempts = 0
+      expect do
+        described_class.with_preset(:network, max_attempts: 2, base_delay: 0, jitter: :none) do
+          attempts += 1
+          raise StandardError, 'network down'
+        end
+      end.to raise_error(StandardError, 'network down')
+
+      expect(attempts).to eq(2)
+    end
+
+    it 'works with each built-in preset' do
+      %i[aggressive conservative network].each do |name|
+        result = described_class.with_preset(name, max_attempts: 1) { :ok }
+        expect(result).to eq(:ok)
+      end
+    end
+  end
+
   describe 'absolute deadline' do
     it 'raises DeadlineExceededError when the deadline has passed' do
       deadline = Time.now - 1

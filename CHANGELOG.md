@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-26
+
+### Added
+- `PRESETS` — frozen Hash of named retry presets (`:aggressive`, `:conservative`, `:network`); each preset hash is also frozen
+- `RetryKit.with_preset(name, **overrides, &block)` — apply a named preset (with optional per-call overrides) and execute the block; raises `ArgumentError` for unknown preset names
+
 ## [0.4.0] - 2026-04-15
 
 ### Added
@@ -96,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retry executor with max attempts, retryable error filtering, and on_retry callback
 - Convenience `RetryKit.run` class method
 
-[Unreleased]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.7...v0.4.0
 [0.3.7]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.3.5...v0.3.6

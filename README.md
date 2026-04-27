@@ -200,6 +200,30 @@ budget.reset       # clear all recorded retries
 
 Thread-safe sliding window counter. When the budget is exhausted, retries are skipped and the error is raised immediately (or the fallback is invoked if provided).
 
+### Presets
+
+Named retry presets cover common scenarios so you don't have to tune knobs from scratch. Pass any keyword to override the preset's defaults:
+
+```ruby
+# Tuned for transient HTTP errors
+Philiprehberger::RetryKit.with_preset(:network) do
+  http_request
+end
+
+# Override individual options as needed
+Philiprehberger::RetryKit.with_preset(:network, max_attempts: 6, on: [Net::ReadTimeout]) do
+  http_request
+end
+```
+
+Available presets:
+
+- `:aggressive` — small `max_attempts`, short delays, full jitter, exponential backoff. For low-latency calls where giving up fast is preferable to waiting.
+- `:conservative` — larger `max_attempts`, longer delays, full jitter, exponential. For background work where success matters more than speed.
+- `:network` — middle ground tuned for transient HTTP errors.
+
+Inspect the table directly via `Philiprehberger::RetryKit::PRESETS`. The constant and each preset hash are frozen.
+
 ### Backoff Strategies
 
 ```ruby
@@ -252,6 +276,8 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | Method / Class | Description |
 |----------------|-------------|
 | `RetryKit.run(**options, &block)` | Execute a block with retry logic |
+| `RetryKit.with_preset(name, **overrides, &block)` | Execute a block using a named preset, with optional overrides |
+| `RetryKit::PRESETS` | Frozen Hash of named preset option Hashes (`:aggressive`, `:conservative`, `:network`) |
 | `Executor.new(**options)` | Create a reusable retry executor |
 | `Executor#call(&block)` | Execute the block with retries |
 | `Executor#last_attempts` | Number of attempts in the last execution |
