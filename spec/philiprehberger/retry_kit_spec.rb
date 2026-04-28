@@ -724,7 +724,16 @@ RSpec.describe Philiprehberger::RetryKit do
     end
 
     it 'includes the expected preset names' do
-      expect(described_class::PRESETS.keys).to include(:aggressive, :conservative, :network)
+      expect(described_class::PRESETS.keys).to include(:aggressive, :conservative, :network, :database)
+    end
+
+    it 'tunes :database for short delays and equal jitter' do
+      preset = described_class::PRESETS[:database]
+      expect(preset[:max_attempts]).to eq(4)
+      expect(preset[:backoff]).to eq(:exponential)
+      expect(preset[:base_delay]).to be < 0.1
+      expect(preset[:max_delay]).to be <= 5.0
+      expect(preset[:jitter]).to eq(:equal)
     end
 
     it 'freezes each preset hash' do
@@ -790,10 +799,24 @@ RSpec.describe Philiprehberger::RetryKit do
     end
 
     it 'works with each built-in preset' do
-      %i[aggressive conservative network].each do |name|
+      %i[aggressive conservative network database].each do |name|
         result = described_class.with_preset(name, max_attempts: 1) { :ok }
         expect(result).to eq(:ok)
       end
+    end
+  end
+
+  describe '.preset_names' do
+    it 'returns all keys of PRESETS' do
+      expect(described_class.preset_names).to eq(described_class::PRESETS.keys)
+    end
+
+    it 'includes every documented preset' do
+      expect(described_class.preset_names).to include(:aggressive, :conservative, :network, :database)
+    end
+
+    it 'returns symbols' do
+      described_class.preset_names.each { |n| expect(n).to be_a(Symbol) }
     end
   end
 

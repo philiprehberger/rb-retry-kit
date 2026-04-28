@@ -36,6 +36,10 @@ module Philiprehberger
     #   matters more than speed.
     # - +:network+ — middle ground tuned for transient HTTP errors;
     #   exponential backoff with full jitter.
+    # - +:database+ — short to medium delays with equal jitter for
+    #   transient database errors (deadlocks, serialization failures,
+    #   connection drops); these typically self-heal quickly or escalate
+    #   fast.
     PRESETS = {
       aggressive: {
         max_attempts: 3,
@@ -57,8 +61,25 @@ module Philiprehberger
         base_delay: 0.5,
         max_delay: 30.0,
         jitter: :full
+      }.freeze,
+      database: {
+        max_attempts: 4,
+        backoff: :exponential,
+        base_delay: 0.05,
+        max_delay: 2.0,
+        jitter: :equal
       }.freeze
     }.freeze
+
+    # Names of all registered presets.
+    #
+    # Useful for surfacing the preset list in CLI tooling, dashboards, or
+    # validating user-supplied preset names without reaching into {PRESETS}.
+    #
+    # @return [Array<Symbol>]
+    def self.preset_names
+      PRESETS.keys
+    end
 
     # Execute a block with retry logic using a named preset from {PRESETS}.
     #

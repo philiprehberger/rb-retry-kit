@@ -221,8 +221,19 @@ Available presets:
 - `:aggressive` — small `max_attempts`, short delays, full jitter, exponential backoff. For low-latency calls where giving up fast is preferable to waiting.
 - `:conservative` — larger `max_attempts`, longer delays, full jitter, exponential. For background work where success matters more than speed.
 - `:network` — middle ground tuned for transient HTTP errors.
+- `:database` — short to medium delays with equal jitter for transient DB errors (deadlocks, serialization failures, connection drops); these typically self-heal quickly or escalate fast.
 
 Inspect the table directly via `Philiprehberger::RetryKit::PRESETS`. The constant and each preset hash are frozen.
+
+### Listing Presets
+
+```ruby
+Philiprehberger::RetryKit.preset_names
+# => [:aggressive, :conservative, :network, :database]
+```
+
+Useful for surfacing the available presets in CLI tooling, dashboards, or
+validating user-supplied preset names without poking at `PRESETS`.
 
 ### Backoff Strategies
 
@@ -277,7 +288,8 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 |----------------|-------------|
 | `RetryKit.run(**options, &block)` | Execute a block with retry logic |
 | `RetryKit.with_preset(name, **overrides, &block)` | Execute a block using a named preset, with optional overrides |
-| `RetryKit::PRESETS` | Frozen Hash of named preset option Hashes (`:aggressive`, `:conservative`, `:network`) |
+| `RetryKit::PRESETS` | Frozen Hash of named preset option Hashes (`:aggressive`, `:conservative`, `:network`, `:database`) |
+| `RetryKit.preset_names` | Array of preset names registered in `PRESETS` |
 | `Executor.new(**options)` | Create a reusable retry executor |
 | `Executor#call(&block)` | Execute the block with retries |
 | `Executor#last_attempts` | Number of attempts in the last execution |

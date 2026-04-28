@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-27
+
+### Added
+- `:database` preset in `PRESETS` — short delays with equal jitter for transient DB errors (deadlocks, serialization failures, connection drops).
+- `RetryKit.preset_names` — returns the list of registered preset names without exposing the underlying constant.
+
 ## [0.5.0] - 2026-04-26
 
 ### Added
