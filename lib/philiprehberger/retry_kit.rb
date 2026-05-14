@@ -40,6 +40,9 @@ module Philiprehberger
     #   transient database errors (deadlocks, serialization failures,
     #   connection drops); these typically self-heal quickly or escalate
     #   fast.
+    # - +:fast+ — minimal latency budget. Three attempts with tiny
+    #   delays for in-process caches, fast RPC, or interactive paths
+    #   where waiting hurts more than failing.
     PRESETS = {
       aggressive: {
         max_attempts: 3,
@@ -68,6 +71,13 @@ module Philiprehberger
         base_delay: 0.05,
         max_delay: 2.0,
         jitter: :equal
+      }.freeze,
+      fast: {
+        max_attempts: 3,
+        backoff: :exponential,
+        base_delay: 0.02,
+        max_delay: 0.2,
+        jitter: :full
       }.freeze
     }.freeze
 
