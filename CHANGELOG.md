@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-20
+
+### Added
+- `on_success:` callback — fired exactly once with `(attempts, total_delay, return_value)` when an execution eventually succeeds, complementing `on_attempt` (per-attempt) and `on_giveup` (terminal failure). Intended for aggregate success metrics.
+- Card image reference in the README for registry-side rendering
+
 ## [0.7.0] - 2026-05-13
 
 ### Added

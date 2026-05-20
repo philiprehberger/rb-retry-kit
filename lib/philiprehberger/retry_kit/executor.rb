@@ -30,7 +30,11 @@ module Philiprehberger
         check_deadline!
         result, duration, error = timed_attempt(&)
         @on_attempt&.call(attempt + 1, duration, error)
-        return result unless error
+
+        unless error
+          @on_success&.call(@last_attempts, @last_total_delay, result)
+          return result
+        end
 
         handle_failure(error, attempt, &)
       end
@@ -93,6 +97,7 @@ module Philiprehberger
         @fallback = options[:fallback]
         @retry_if = options[:retry_if]
         @on_attempt = options[:on_attempt]
+        @on_success = options[:on_success]
         @on_giveup = options[:on_giveup]
         @budget = options[:budget]
         @deadline = options[:deadline]

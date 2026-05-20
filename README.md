@@ -4,6 +4,8 @@
 [![Gem Version](https://badge.fury.io/rb/philiprehberger-retry_kit.svg)](https://rubygems.org/gems/philiprehberger-retry_kit)
 [![Last updated](https://img.shields.io/github/last-commit/philiprehberger/rb-retry-kit)](https://github.com/philiprehberger/rb-retry-kit/commits/main)
 
+![philiprehberger-retry_kit](https://raw.githubusercontent.com/philiprehberger/rb-retry-kit/main/package-card.webp)
+
 Retry with exponential backoff, jitter, and circuit breaker
 
 ## Requirements
@@ -182,6 +184,23 @@ end
 
 Useful for metrics, alerting, and structured logging at the point of failure.
 
+### Success Callback
+
+Fired exactly once after the executor produces a successful result — whether on the first attempt or after retries. Receives `(attempts, total_delay, return_value)`:
+
+```ruby
+Philiprehberger::RetryKit.run(
+  on_success: ->(attempts, total_delay, value) {
+    Metrics.histogram("retry.attempts", attempts)
+    Metrics.histogram("retry.total_delay", total_delay) if attempts > 1
+  }
+) do
+  api_call
+end
+```
+
+Differs from `on_attempt`, which fires after *every* attempt (including failed ones). `on_success` is the right place for aggregate success metrics.
+
 ### Retry Budget
 
 Global retry budget shared across executors to prevent retry storms:
@@ -288,6 +307,7 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | Method / Class | Description |
 |----------------|-------------|
 | `RetryKit.run(**options, &block)` | Execute a block with retry logic |
+| `on_success: ->(attempts, total_delay, value) { ... }` | Callback fired once on eventual success, with aggregate stats and the return value |
 | `RetryKit.with_preset(name, **overrides, &block)` | Execute a block using a named preset, with optional overrides |
 | `RetryKit::PRESETS` | Frozen Hash of named preset option Hashes (`:aggressive`, `:conservative`, `:network`, `:database`, `:fast`) |
 | `RetryKit.preset_names` | Array of preset names registered in `PRESETS` |

@@ -476,6 +476,63 @@ RSpec.describe Philiprehberger::RetryKit do
     end
   end
 
+  describe 'on_success callback' do
+    it 'fires once after a first-try success with attempts: 1 and zero total delay' do
+      received = nil
+      result = described_class.run(
+        max_attempts: 3,
+        backoff: :constant,
+        base_delay: 0,
+        jitter: :none,
+        on_success: lambda { |attempts, total_delay, value|
+          received = { attempts: attempts, total_delay: total_delay, value: value }
+        }
+      ) { 'ok' }
+
+      expect(result).to eq('ok')
+      expect(received).to eq(attempts: 1, total_delay: 0.0, value: 'ok')
+    end
+
+    it 'fires once after a retried success with accumulated total_delay > 0' do
+      received = nil
+      attempts = 0
+      described_class.run(
+        max_attempts: 3,
+        backoff: :constant,
+        base_delay: 0.01,
+        jitter: :none,
+        on_success: lambda { |a, d, v|
+          received = { attempts: a, total_delay: d, value: v }
+        }
+      ) do
+        attempts += 1
+        raise StandardError, 'fail' if attempts < 3
+
+        'after_retries'
+      end
+
+      expect(received[:attempts]).to eq(3)
+      expect(received[:value]).to eq('after_retries')
+      expect(received[:total_delay]).to be > 0
+    end
+
+    it 'is not called when retries are exhausted' do
+      received = false
+      begin
+        described_class.run(
+          max_attempts: 2,
+          backoff: :constant,
+          base_delay: 0,
+          jitter: :none,
+          on_success: ->(*) { received = true }
+        ) { raise StandardError, 'nope' }
+      rescue StandardError
+        nil
+      end
+      expect(received).to be false
+    end
+  end
+
   describe 'retry budget' do
     it 'limits retries across executors' do
       budget = Philiprehberger::RetryKit::Budget.new(max_retries: 3, window: 60)
@@ -755,7 +812,7 @@ RSpec.describe Philiprehberger::RetryKit do
       accepted = %i[
         max_attempts backoff base_delay max_delay jitter on
         circuit_breaker on_retry total_timeout fallback retry_if
-        on_attempt on_giveup budget deadline
+        on_attempt on_success on_giveup budget deadline
       ]
       described_class::PRESETS.each_value do |preset|
         expect(preset.keys - accepted).to eq([])
