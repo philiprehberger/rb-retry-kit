@@ -307,7 +307,6 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | Method / Class | Description |
 |----------------|-------------|
 | `RetryKit.run(**options, &block)` | Execute a block with retry logic |
-| `on_success: ->(attempts, total_delay, value) { ... }` | Callback fired once on eventual success, with aggregate stats and the return value |
 | `RetryKit.with_preset(name, **overrides, &block)` | Execute a block using a named preset, with optional overrides |
 | `RetryKit::PRESETS` | Frozen Hash of named preset option Hashes (`:aggressive`, `:conservative`, `:network`, `:database`, `:fast`) |
 | `RetryKit.preset_names` | Array of preset names registered in `PRESETS` |
@@ -332,6 +331,17 @@ Philiprehberger::RetryKit::Backoff.jitter(4.0, mode: :full)
 | `Budget#reset` | Clear all recorded retries |
 | `TotalTimeoutError` | Raised when `total_timeout` is exceeded |
 | `DeadlineExceededError` | Raised when the absolute `deadline:` has passed |
+
+### Callbacks
+
+The options below are **callback options** passed to `RetryKit.run` / `Executor.new`, not methods. Each accepts a callable (proc or lambda) and is invoked at the documented lifecycle point.
+
+| Callback option | Signature | When it fires |
+|-----------------|-----------|---------------|
+| `on_retry:` | `->(error, attempt, delay) { ... }` | Before each retry sleep, after a failed attempt that will be retried |
+| `on_attempt:` | `->(attempt, duration, error) { ... }` | After every attempt (success or failure), useful for per-attempt metrics |
+| `on_success:` | `->(attempts, total_delay, value) { ... }` | Exactly once on eventual success, with aggregate stats and the return value |
+| `on_giveup:` | `->(error, attempts) { ... }` | Exactly once when the executor stops retrying, before fallback or re-raise |
 
 ## Development
 
