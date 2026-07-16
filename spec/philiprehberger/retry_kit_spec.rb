@@ -110,11 +110,10 @@ RSpec.describe Philiprehberger::RetryKit do
     end
 
     it 'raises ArgumentError for unknown backoff strategy' do
-      executor = Philiprehberger::RetryKit::Executor.new(
-        max_attempts: 2, backoff: :unknown, base_delay: 0, jitter: :none
-      )
       expect do
-        executor.call { raise StandardError, 'fail' }
+        Philiprehberger::RetryKit::Executor.new(
+          max_attempts: 2, backoff: :unknown, base_delay: 0, jitter: :none
+        )
       end.to raise_error(ArgumentError, /Unknown backoff strategy/)
     end
 
@@ -951,6 +950,90 @@ RSpec.describe Philiprehberger::RetryKit do
       end.to raise_error(Philiprehberger::RetryKit::DeadlineExceededError)
     end
   end
+
+  describe 'sleep budget clamping' do
+    it 'does not sleep past the total_timeout budget' do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 5, backoff: :constant, base_delay: 30, jitter: :none, total_timeout: 0.1
+      )
+
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      expect do
+        executor.call { raise StandardError, 'fail' }
+      end.to raise_error(Philiprehberger::RetryKit::TotalTimeoutError)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+
+      # Without clamping this would sleep ~30s; the bound must be honored.
+      expect(elapsed).to be < 1.0
+    end
+
+    it 'does not sleep past the deadline budget' do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 5, backoff: :constant, base_delay: 30, jitter: :none, deadline: Time.now + 0.1
+      )
+
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      expect do
+        executor.call { raise StandardError, 'fail' }
+      end.to raise_error(Philiprehberger::RetryKit::DeadlineExceededError)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+
+      expect(elapsed).to be < 1.0
+    end
+
+    it 'clamps each sleep to at most the remaining timeout' do
+      executor = Philiprehberger::RetryKit::Executor.new(
+        max_attempts: 5, backoff: :constant, base_delay: 30, jitter: :none, total_timeout: 5
+      )
+
+      slept = []
+      allow(executor).to receive(:sleep) { |seconds| slept << seconds }
+
+      begin
+        executor.call { raise StandardError, 'fail' }
+      rescue StandardError
+        nil
+      end
+
+      expect(slept).not_to be_empty
+      slept.each { |seconds| expect(seconds).to be <= 5 }
+    end
+  end
+
+  describe 'option validation' do
+    def build(**options)
+      Philiprehberger::RetryKit::Executor.new(**options)
+    end
+
+    it 'raises ArgumentError for an unknown backoff strategy' do
+      expect { build(backoff: :bogus) }.to raise_error(ArgumentError, /Unknown backoff strategy/)
+    end
+
+    it 'raises ArgumentError for an unknown jitter mode' do
+      expect { build(jitter: :bogus) }.to raise_error(ArgumentError, /Unknown jitter mode/)
+    end
+
+    it 'raises ArgumentError when max_attempts is less than 1' do
+      expect { build(max_attempts: 0) }.to raise_error(ArgumentError, /max_attempts must be >= 1/)
+    end
+
+    it 'raises ArgumentError when base_delay is negative' do
+      expect { build(base_delay: -1) }.to raise_error(ArgumentError, /base_delay must be >= 0/)
+    end
+
+    it 'raises ArgumentError when max_delay is less than base_delay' do
+      expect { build(base_delay: 5, max_delay: 1) }.to raise_error(ArgumentError, /max_delay .* must be >= base_delay/)
+    end
+
+    it 'rejects an invalid strategy via RetryKit.run instead of silently succeeding' do
+      expect { described_class.run(backoff: :bogus) { :ok } }.to raise_error(ArgumentError, /Unknown backoff strategy/)
+    end
+
+    it 'accepts valid options' do
+      expect { build(backoff: :linear, jitter: :equal, max_attempts: 3, base_delay: 1, max_delay: 10) }
+        .not_to raise_error
+    end
+  end
 end
 
 RSpec.describe Philiprehberger::RetryKit::Backoff do
@@ -1337,6 +1420,78 @@ RSpec.describe Philiprehberger::RetryKit::CircuitBreaker do
       transitions.clear
       cb.reset
       expect(transitions).to eq([%i[open closed]])
+    end
+  end
+
+  describe 'single-trial half-open' do
+    it 'lets only the first caller probe while concurrent callers get OpenError' do
+      breaker = described_class.new(failure_threshold: 1, cooldown: 0.05)
+
+      begin
+        breaker.call { raise StandardError, 'trip' }
+      rescue StandardError
+        nil
+      end
+
+      sleep 0.1 # cooldown elapsed: the next caller transitions to half_open
+
+      results = Queue.new
+      gate = Queue.new
+      threads = Array.new(5) do
+        Thread.new do
+          breaker.call do
+            gate.pop # hold the probe open until released
+            'probed'
+          end
+          results << :success
+        rescue Philiprehberger::RetryKit::CircuitBreaker::OpenError
+          results << :open_error
+        rescue StandardError
+          results << :other
+        end
+      end
+
+      sleep 0.1 # give the losing callers time to be rejected
+      gate << :go # release the single prober
+      threads.each(&:join)
+
+      outcomes = Array.new(results.size) { results.pop }
+      expect(outcomes.count(:success)).to eq(1)
+      expect(outcomes.count(:open_error)).to eq(4)
+    end
+
+    it 'closes the circuit after a successful probe' do
+      breaker = described_class.new(failure_threshold: 1, cooldown: 0.05)
+      begin
+        breaker.call { raise StandardError, 'trip' }
+      rescue StandardError
+        nil
+      end
+      sleep 0.1
+
+      expect(breaker.call { 'recovered' }).to eq('recovered')
+      expect(breaker.state).to eq(:closed)
+    end
+
+    it 'allows a new probe after a failed probe and another cooldown' do
+      breaker = described_class.new(failure_threshold: 1, cooldown: 0.05)
+      begin
+        breaker.call { raise StandardError, 'trip' }
+      rescue StandardError
+        nil
+      end
+      sleep 0.1
+
+      # First probe fails and re-opens the circuit.
+      begin
+        breaker.call { raise StandardError, 'probe fail' }
+      rescue StandardError
+        nil
+      end
+      expect(breaker.state).to eq(:open)
+
+      sleep 0.1
+      expect(breaker.call { 'recovered' }).to eq('recovered')
     end
   end
 

@@ -3,10 +3,14 @@
 module Philiprehberger
   module RetryKit
     class Executor
+      VALID_BACKOFFS = %i[exponential linear constant].freeze
+      VALID_JITTERS = %i[full equal none decorrelated].freeze
+
       attr_reader :last_attempts, :last_total_delay
 
       def initialize(**options)
         assign_options(options)
+        validate_options!
         @last_attempts = 0
         @last_total_delay = 0.0
       end
@@ -69,11 +73,34 @@ module Philiprehberger
       end
 
       def wait_and_retry(error, attempt, &)
-        delay = compute_delay(attempt)
+        delay = clamp_delay(compute_delay(attempt))
         @last_total_delay += delay
         @on_retry&.call(error, attempt + 1, delay)
         sleep(delay)
         attempt_with_retries(attempt + 1, &)
+      end
+
+      # Cap the computed backoff delay to whatever time budget remains so a
+      # long backoff never sleeps past +total_timeout+/+deadline+. Raises the
+      # appropriate error immediately when the budget is already exhausted
+      # rather than sleeping.
+      def clamp_delay(delay)
+        check_total_timeout!
+        check_deadline!
+
+        [delay, remaining_timeout, remaining_deadline].compact.min
+      end
+
+      def remaining_timeout
+        return nil unless @start_time
+
+        @total_timeout - (Process.clock_gettime(Process::CLOCK_MONOTONIC) - @start_time)
+      end
+
+      def remaining_deadline
+        return nil unless @deadline
+
+        @deadline - Time.now
       end
 
       def assign_options(options)
@@ -101,6 +128,27 @@ module Philiprehberger
         @on_giveup = options[:on_giveup]
         @budget = options[:budget]
         @deadline = options[:deadline]
+      end
+
+      # Fail fast on invalid configuration so misconfigured retries surface at
+      # construction time instead of silently succeeding or misbehaving later.
+      def validate_options!
+        unless VALID_BACKOFFS.include?(@backoff)
+          raise ArgumentError, "Unknown backoff strategy: #{@backoff.inspect}. Use :exponential, :linear, or :constant"
+        end
+        unless VALID_JITTERS.include?(@jitter)
+          raise ArgumentError, "Unknown jitter mode: #{@jitter.inspect}. Use :full, :equal, :none, or :decorrelated"
+        end
+
+        validate_numeric_options!
+      end
+
+      def validate_numeric_options!
+        raise ArgumentError, "max_attempts must be >= 1 (got #{@max_attempts})" if @max_attempts < 1
+        raise ArgumentError, "base_delay must be >= 0 (got #{@base_delay})" if @base_delay.negative?
+        return unless @max_delay < @base_delay
+
+        raise ArgumentError, "max_delay (#{@max_delay}) must be >= base_delay (#{@base_delay})"
       end
 
       def check_total_timeout!

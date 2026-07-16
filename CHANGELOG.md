@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-15
+
+### Added
+- Fail-fast option validation in `Executor#initialize` — an unknown `backoff:` or `jitter:` symbol, `max_attempts < 1`, a negative `base_delay`, or a `max_delay` below `base_delay` now raise `ArgumentError` at construction time instead of silently succeeding or misbehaving later.
+- Single-trial half-open circuit breaker — when the circuit transitions to half-open only the first caller probes; concurrent callers receive `OpenError` until the probe resolves (success closes the circuit, failure re-opens it), preventing a thundering herd against a recovering dependency.
+
+### Fixed
+- Clamp retry sleeps to the remaining `total_timeout` / `deadline` budget — `wait_and_retry` no longer sleeps a full backoff delay when the budget is nearly exhausted (e.g. a 30s backoff under a 5s `total_timeout`). The delay is capped to the time remaining, and `TotalTimeoutError` / `DeadlineExceededError` is raised immediately when no budget remains.
+
 ## [0.8.1] - 2026-06-14
 
 ### Changed
@@ -124,7 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retry executor with max attempts, retryable error filtering, and on_retry callback
 - Convenience `RetryKit.run` class method
 
-[Unreleased]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/philiprehberger/rb-retry-kit/compare/v0.6.0...v0.7.0

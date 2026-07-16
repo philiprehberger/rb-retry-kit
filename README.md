@@ -52,6 +52,8 @@ Philiprehberger::RetryKit.run(
 end
 ```
 
+Options are validated up front. `Executor.new` / `RetryKit.run` raise `ArgumentError` immediately for an unknown `backoff:` strategy or `jitter:` mode, `max_attempts` below 1, a negative `base_delay`, or a `max_delay` smaller than `base_delay` — so a misconfiguration surfaces at construction time instead of silently succeeding.
+
 ### Retry Callback
 
 ```ruby
@@ -77,6 +79,8 @@ Philiprehberger::RetryKit.run(
   slow_operation
 end
 ```
+
+Backoff sleeps are clamped to the remaining budget: if a computed delay would sleep past `total_timeout` (or `deadline`), it is shortened to the time left, and `TotalTimeoutError` / `DeadlineExceededError` is raised as soon as no budget remains — the executor never overshoots the stated bound by sleeping a full backoff delay.
 
 ### Absolute Deadline
 
@@ -291,6 +295,8 @@ breaker.failure_count
 breaker.reset        # reset to closed
 breaker.trip!        # force open immediately (operational kill-switch)
 ```
+
+After the cooldown elapses the circuit becomes half-open and probes with a **single trial**: only the first caller is allowed through, and concurrent callers receive `OpenError` until the probe resolves. A successful probe closes the circuit; a failed probe re-opens it and starts a fresh cooldown. This prevents a thundering herd from hammering a dependency that is still recovering.
 
 ### Backoff Utilities
 

@@ -23,6 +23,7 @@ module Philiprehberger
         @failure_count = 0
         @state = :closed
         @last_failure_time = nil
+        @half_open_in_flight = false
         @mutex = Mutex.new
       end
 
@@ -50,6 +51,7 @@ module Philiprehberger
       def reset
         @mutex.synchronize do
           @failure_count = 0
+          @half_open_in_flight = false
           transition_to(:closed)
           @last_failure_time = nil
         end
@@ -63,6 +65,7 @@ module Philiprehberger
       def trip!
         @mutex.synchronize do
           @failure_count = @failure_threshold
+          @half_open_in_flight = false
           @last_failure_time = Time.now
           transition_to(:open)
         end
@@ -79,14 +82,20 @@ module Philiprehberger
           end
 
           transition_to(:half_open)
+          @half_open_in_flight = true
         when :half_open
-          # Allow one attempt through
+          # Only the first caller probes; concurrent callers are rejected
+          # until the probe resolves (success closes, failure re-opens).
+          raise OpenError, 'Circuit is half-open (probe in progress)' if @half_open_in_flight
+
+          @half_open_in_flight = true
         end
       end
 
       def record_success
         @mutex.synchronize do
           @failure_count = 0
+          @half_open_in_flight = false
           transition_to(:closed)
           @last_failure_time = nil
         end
@@ -95,6 +104,7 @@ module Philiprehberger
       def record_failure
         @mutex.synchronize do
           @failure_count += 1
+          @half_open_in_flight = false
           @last_failure_time = Time.now
 
           transition_to(:open) if @failure_count >= @failure_threshold
